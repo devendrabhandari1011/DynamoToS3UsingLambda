@@ -2,10 +2,18 @@ package com.amazonaws.lambda.demo;
 
 import java.io.File;
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Paths;
+import java.nio.file.StandardOpenOption;
 
 import com.amazonaws.AmazonServiceException;
 import com.amazonaws.SdkClientException;
 import com.amazonaws.regions.Regions;
+import com.amazonaws.services.dynamodbv2.AmazonDynamoDB;
+import com.amazonaws.services.dynamodbv2.AmazonDynamoDBClientBuilder;
+import com.amazonaws.services.dynamodbv2.document.DynamoDB;
+import com.amazonaws.services.dynamodbv2.document.Item;
+import com.amazonaws.services.dynamodbv2.document.Table;
 import com.amazonaws.services.lambda.runtime.Context;
 import com.amazonaws.services.lambda.runtime.RequestHandler;
 import com.amazonaws.services.lambda.runtime.events.DynamodbEvent;
@@ -23,6 +31,7 @@ public class LambdaFunctionHandler implements RequestHandler<DynamodbEvent, Inte
     private final String FULLTEXT_REF = "fulltext-ref";
     private final String DYNAMODB_RECORD_ID = "dynamodb-record-id";
     private final String BUCKET_NAME = "mybucket-05-2021";
+    private final String FULLTEXT_COLLECTION = "FullTextCollection";
 	
 	@Override
 	public Integer handleRequest(DynamodbEvent event, Context context) {
@@ -45,10 +54,14 @@ public class LambdaFunctionHandler implements RequestHandler<DynamodbEvent, Inte
 	     String fileObjKeyName = getFilePath(fileName);
 	     //String filePath = fileObjKeyName;
 	     try {
+	    	 	String content = getItemFromDynamoDB(fullTextRef,context);
 	            AmazonS3 s3Client = AmazonS3ClientBuilder.standard().withRegion(clientRegion).build();
 	            // Upload a file as a new object with ContentType and title specified.
 	            String fileArray[] = fileName.split("\\.");
 	            File file = File.createTempFile(fileArray[0], fileArray[1]);
+	            if(!StringUtils.isNullOrEmpty(content)) {
+	            	 Files.write(Paths.get(file.getPath()), content.getBytes(), StandardOpenOption.CREATE);
+	            }
 	            PutObjectRequest request = new PutObjectRequest(BUCKET_NAME, fileObjKeyName, file);
 	            ObjectMetadata metadata = new ObjectMetadata();
 	            metadata.setContentType(mimeType);
@@ -63,6 +76,18 @@ public class LambdaFunctionHandler implements RequestHandler<DynamodbEvent, Inte
 	        	context.getLogger().log("IO Exception ::"+e.getStackTrace()[0] +":"+ e.getMessage());
 	        }   
 	    }
+
+	private String getItemFromDynamoDB(String fullTextRef,Context context) {
+		AmazonDynamoDB client = AmazonDynamoDBClientBuilder.defaultClient();
+        DynamoDB dynamoDB = new DynamoDB(client);
+        Table table = dynamoDB.getTable(FULLTEXT_COLLECTION);
+        Item item = table.getItem("id", fullTextRef);
+        if(item != null) {
+        	context.getLogger().log("Item Info ::"+item.toJSONPretty());
+            return item.getString("ftValue");
+        }
+		return null;
+	}
 
 	private String getFilePath(String fileName) {
 		if(StringUtils.isNullOrEmpty(fileName)) {
